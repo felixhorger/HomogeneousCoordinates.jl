@@ -1,0 +1,8 @@
+name = "HomogeneousCoordinates"
+uuid = "47771e7b-e0bf-483c-9843-56ba79ba06f9"
+authors = ["Felix Horger <felix.horger@kcl.ac.uk>"]
+version = "0.1.0"
+
+[deps]
+Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
