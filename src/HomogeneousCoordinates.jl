@@ -3,12 +3,13 @@ module HomogeneousCoordinates
 
 	using Interpolations
 	using StaticArrays
+	using Base.Cartesian
 
 	"""
 		Not sure if this is true for all homogeneous coordinates, but this requires
 		the matrix [4,4] element to be equal to one.
 	"""
-	function transform(
+	@generated function transform(
 		a::AbstractArray{T, 3},
 		b_size::NTuple{N, Int64},
 		Ma::AbstractMatrix{<: Real},
@@ -18,25 +19,28 @@ module HomogeneousCoordinates
 	) where {N, T <: Number}
 		# TODO generated for any dimension
 		
-		(rows, columns, slices) = size(a)
+		return quote
+			b = zeros(T, b_size)
+			a_itp = extrapolate(
+				interpolate(
+					a,
+					interp_scheme
+				),
+				extrap_scheme
+			)
 
-		b = zeros(T, b_size)
-		a_itp = extrapolate(
-			interpolate(
-				a,
-				interp_scheme
-			),
-			extrap_scheme
-		)
-
-		Mba = (inv(Ma) * Mb)[1:3, :]
-		for i in CartesianIndices(b_size)
-			b_vec = SVector{4, Float64}(i[1]-1, i[2]-1, i[3]-1, 1)
-			a_vec = Mba * b_vec
-			#a_vec = a_vec ./ a_vec[4]
-			b[i] = a_itp(a_vec...)
+			Mba = (inv(Ma) * Mb)[1:$N, :]
+			# Compute offset due to one based indexing
+			shift = (@SVector ones(Float64, $N)) - Mba * (@SVector ones(Float64, $(N+1)))
+			# Iterate indices of b
+			for i in CartesianIndices(b_size)
+				b_vec = SVector{4, Float64}(i[1], i[2], i[3], 1)
+				a_vec = Mba * b_vec + shift
+				#a_vec = a_vec ./ a_vec[4]
+				b[i] = $(Expr(:call, :a_itp, ntuple(d -> :(a_vec[$d]), N)...))
+			end
+			return b
 		end
-		return b
 	end
 
 	# This is not yet useful, it can be useful if you only want to change the coordinate system,
@@ -79,20 +83,25 @@ module HomogeneousCoordinates
 		α gives rotation of that volume around this axis
 		(first rotation around second axis by θ, then rotation around third axis by ϕ)
 	"""
-	@inline volume_rotation(ϕ::Real, θ::Real, α::Real) = begin
-	R_z(ϕ) * R_y(θ) * R_z(α)
+	@inline volume_rotation(ϕ::Real, θ::Real, α::Real) = R_z(ϕ) * R_y(θ) * R_z(α)
+
+	function cosines2spherical(dc::AbstractVector{<: Real})
+		φ = atan(dc[2], dc[1])
+		θ = atan(sqrt(dc[1]^2 + dc[2]^2), dc[3])
+		return φ, θ
 	end
 
 	"""
+		not sure if useful
 		Columns are basis vectors
+		Make all vectors point into a "positive" direction relative to the canonical basis
 	"""
 	function adjust_lhrh!(e::AbstractMatrix{<: Real})
-		i = argmax(abs.(e); dims=1)
+		i = argmax(abs2.(e); dims=1)
 		signs = sign.(e[i])
 		e .*= signs
 		return
 	end
-
 
 	function transformation_matrix(R::AbstractMatrix{<: Real}, voxelsize::NTuple{3, Real}, translation::NTuple{3, Real})
 		# Allocate space
@@ -108,6 +117,13 @@ module HomogeneousCoordinates
 		M[4, 1:3] .= 0
 		M[4, 4] = 1
 		return M
+	end
+
+	function scale!(M::AbstractMatrix{<: Real}, δ::AbstractVector{<: Real})
+		for i = 1:3
+			M[1:3, i] .*= δ[i]
+		end
+		return
 	end
 
 end
